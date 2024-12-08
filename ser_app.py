@@ -43,6 +43,7 @@ def record_audio(filename, duration=5, sample_rate=44100):
 @st.cache_resource
 def load_model():
     return joblib.load('svm_model2.pkl')
+scaler = joblib.load("scaler.pkl")
 
 def augment_audio(y, sr):
     augmented_audio = []
@@ -133,6 +134,7 @@ def main():
 
         # Feature extraction
         features = extract_features("temp_audio.wav", augment=True)
+        features = scaler.transform([features])
         # Predict
         st.write("Predicting emotion...")
         model = load_model()
