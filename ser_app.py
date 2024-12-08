@@ -1,6 +1,8 @@
 import streamlit as st
 import librosa
+import librosa.display
 import numpy as np
+import matplotlib.pyplot as plt
 import os
 import joblib
 import noisereduce as nr
@@ -9,14 +11,6 @@ import wave
 
 # Audio recording functionality
 def record_audio(filename, duration=5, sample_rate=44100):
-    """
-    Records audio from the microphone and saves it as a .wav file.
-
-    Args:
-        filename (str): The name of the output .wav file.
-        duration (int): Duration of the recording in seconds. Default is 5 seconds.
-        sample_rate (int): Sample rate for the recording. Default is 44100 Hz.
-    """
     try:
         st.info("Recording started...")
         audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='int16')
@@ -41,7 +35,6 @@ def load_model():
 
 # Load the scaler
 scaler = joblib.load("scaler.pkl")
-
 
 
 def augment_audio(y, sr):
@@ -99,7 +92,7 @@ def clean_audio(filename, noise_sample_duration=1, top_db=15, trim_margin=0.2, p
 
 def extract_features(filename):
     y, sr = clean_audio(filename)
-    rmse = np.mean(librosa.feature.rms(y=y, frame_length=2))
+    rmse = np.mean(librosa.feature.rms(y=y))
     mfccs = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=55), axis=1)
     chroma = np.mean(librosa.feature.chroma_stft(y=y, sr=sr), axis=1)
     spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))
@@ -108,17 +101,41 @@ def extract_features(filename):
     tonnetz = np.mean(librosa.feature.tonnetz(y=librosa.effects.harmonic(y), sr=sr), axis=1)
     return np.hstack([mfccs, rmse, chroma, spectral_centroid, spectral_rolloff, zcr, tonnetz])
 
+# Visualization: Waveform
+def plot_waveform(y, sr):
+    fig, ax = plt.subplots(figsize=(10, 4))
+    librosa.display.waveshow(y, sr=sr, ax=ax)
+    ax.set_title("Waveform")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Amplitude")
+    st.pyplot(fig)
+
+# Visualization: Spectrogram
+def plot_spectrogram(y, sr):
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+    S_dB = librosa.power_to_db(S, ref=np.max)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    img = librosa.display.specshow(S_dB, sr=sr, x_axis='time', y_axis='mel', ax=ax, cmap='viridis')
+    fig.colorbar(img, ax=ax, format='%+2.0f dB')
+    ax.set_title("Mel Spectrogram")
+    st.pyplot(fig)
+
 # Main function
 def main():
     st.title("Speech Emotion Recognition")
-    st.write("Upload an audio file or record one to predict its emotion.")
+    st.write("Upload an audio file or record one to predict its emotion and analyze its properties.")
 
     # Audio recording
     if st.button("Record Audio"):
         temp_file = "recorded_audio.wav"
         if record_audio(temp_file, duration=5):
             st.audio(temp_file, format="audio/wav")
-            st.write("Recorded audio is ready for processing.")
+            y, sr = librosa.load(temp_file, sr=None)
+            st.write("### Audio Metrics")
+            st.write(f"- **Duration**: {librosa.get_duration(y=y, sr=sr):.2f} seconds")
+            st.write(f"- **Sample Rate**: {sr} Hz")
+            plot_waveform(y, sr)
+            plot_spectrogram(y, sr)
             features = extract_features(temp_file)
             features = scaler.transform([features])
             st.write("Predicting emotion...")
@@ -129,11 +146,17 @@ def main():
     # File uploader
     uploaded_file = st.file_uploader("Upload an audio file", type=["wav"])
     if uploaded_file is not None:
-        with open("uploaded_audio.wav", "wb") as f:
+        temp_file = "uploaded_audio.wav"
+        with open(temp_file, "wb") as f:
             f.write(uploaded_file.getbuffer())
-        st.audio("uploaded_audio.wav", format="audio/wav")
-        st.write("Processing uploaded audio...")
-        features = extract_features("uploaded_audio.wav")
+        st.audio(temp_file, format="audio/wav")
+        y, sr = librosa.load(temp_file, sr=None)
+        st.write("### Audio Metrics")
+        st.write(f"- **Duration**: {librosa.get_duration(y=y, sr=sr):.2f} seconds")
+        st.write(f"- **Sample Rate**: {sr} Hz")
+        plot_waveform(y, sr)
+        plot_spectrogram(y, sr)
+        features = extract_features(temp_file)
         features = scaler.transform([features])
         st.write("Predicting emotion...")
         model = load_model()
